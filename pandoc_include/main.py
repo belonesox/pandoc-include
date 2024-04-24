@@ -17,6 +17,10 @@ from urllib.parse import urlparse
 from .format_heuristics import formatFromPath
 from .config import parseConfig, parseOptions, TEMP_FILE, Env
 
+from pathlib import Path
+desourcepos_filter_path = Path(__file__).parent / 'lua' / 'desourcepos.lua'
+filename_sourcepos_filter_path = Path(__file__).parent / 'lua' / 'filename-sourcepos.lua'
+
 
 # Global variables
 INCLUDE_INVALID  = 0
@@ -77,7 +81,12 @@ def extract_info(rawString):
 
 def is_include_line(elem):
     # Revert to Markdown for regex matching
-    rawString = pf.convert_text(elem, input_format='panflute', output_format='markdown_strict', standalone=True)
+    extra_args = []
+    if desourcepos_filter_path.exists():
+        desourcepos_filter = f'--lua-filter={desourcepos_filter_path}' # We should not quote path here
+        extra_args.append(desourcepos_filter)
+
+    rawString = pf.convert_text(elem, input_format='panflute', output_format='markdown_strict', standalone=True, extra_args=extra_args)
 
     includeType = INCLUDE_INVALID
     config = {}
@@ -325,6 +334,17 @@ def action(elem, doc):
                 # copy since pf will modify this argument
                 pandoc_options = list(options["pandoc-options"])
 
+                # Now I dont see other good way to detect that we want parse all this stuff with «sourcepos» filter.
+                if 'PANDOC_SOURCE_FORMAT' in os.environ:
+                    fmt = os.environ['PANDOC_SOURCE_FORMAT']
+
+                    # We need to inform pandoc about current filename
+                    if filename_sourcepos_filter_path.exists():
+                        fileabspath = os.path.abspath(os.path.split(fn)[1]) # Actually we already change CWD, so we need to specify only filename
+                        pandoc_options.extend([ "-M", 
+                                                f"current_markdown_file={fileabspath}",
+                                                f"--lua-filter={filename_sourcepos_filter_path.as_posix()}"])
+
                 if "raw" in config:
                     rawFmt = config.get("raw")
                     # raw block
@@ -414,6 +434,11 @@ def action(elem, doc):
 
 
 def main(doc=None):
+    import sys
+    from pprint import pprint
+    with open('debug.log', 'w') as lf:
+        pprint(dict(os.environ), lf)
+        pprint(sys.argv, lf)
     return pf.run_filter(action, doc=doc)
 
 
